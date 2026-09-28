@@ -16,15 +16,21 @@ The main branch contains the current integrated version of the project. Instead 
 
 Team members work independently on their assigned files and commit their changes when their work is ready.
 
+No other branches are created. `main` is the only long-lived branch and is never deleted. Since there are no feature branches, there is nothing to merge or delete: all changes go directly to `main`.
+
 ## 3. Commit Rules
 
 Each commit should represent one logical change. Developers should avoid putting several unrelated modifications into the same commit.
 
 Commit messages should clearly describe what was changed. Commit messages should be short, clear, and descriptive so that the project history is easy to understand.
 
+Commit message format: `<type>: <short description>`, written in the imperative mood, with a maximum of 50 characters. Allowed types are `feat` (new feature), `fix` (bug fix), `docs` (documentation), and `refactor` (code restructuring). Example: `feat: add ship movement`.
+
 ## 4. Pull Requests and Review
 
 Our team does not use Pull Requests for integrating changes. Direct pushes to main are allowed.
+
+No formal code review or approval is required before pushing. The only conditions are to announce the push on Slack, pull the latest `main`, and test that the project still works.
 
 When a developer finishes a feature, they push their changes to the shared repository. Before pushing, the developer must inform the other team members through Slack or another agreed communication channel. This allows the team to know that new changes are being pushed and helps prevent unexpected conflicts.
 
@@ -56,6 +62,3 @@ flowchart TD
     K --> L[Teammates run git pull origin main]
     L --> B
 ```
-
-If a merge conflict occurs, the developer responsible for the branch will resolve the conflict, test the result, and update the Pull Request.
-We will use Squash Merge when merging a completed feature, so that the final main history remains clean and each feature can be represented by a clear commit.

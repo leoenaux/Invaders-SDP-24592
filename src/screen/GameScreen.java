@@ -3,11 +3,13 @@ package screen;
 import java.awt.event.KeyEvent;
 import java.util.HashSet;
 import java.util.Set;
-
+import entity.item.ItemManager;
+import entity.item.ShieldItem;
 import engine.Cooldown;
 import engine.Core;
 import engine.GameSettings;
 import engine.GameState;
+import engine.ControlsConfig;
 import entity.Bullet;
 import entity.BulletPool;
 import entity.EnemyShip;
@@ -15,8 +17,9 @@ import entity.EnemyShipFormation;
 import entity.Entity;
 import entity.Ship;
 import audio.AudioManager;
-import entity.item.BuffManager;
 import entity.item.Hyperfire;
+
+import entity.item.OrbitalAnnihilator;
 
 /**
  * Implements the game screen, where the action happens.
@@ -40,7 +43,10 @@ public class GameScreen extends Screen {
 	private static final int SCREEN_CHANGE_INTERVAL = 1500;
 	/** Height of the interface separation line. */
 	private static final int SEPARATION_LINE_HEIGHT = 40;
-
+	/** Time the space key must be held to trigger the Annihilator. */
+	private static final int ANNIHILATOR_HOLD_TIME = 1000;
+    private ItemManager itemManager;
+    private boolean shieldDroppedThisLevel = false;
 	/** Current game difficulty settings. */
 	private GameSettings gameSettings;
 	/** Current difficulty level number. */
@@ -75,10 +81,12 @@ public class GameScreen extends Screen {
 	private boolean levelFinished;
 	/** Checks if a bonus life is received. */
 	private boolean bonusLife;
+	/** Orbital Annihilator (Doomsday Laser), only available on level 7. */
+	private OrbitalAnnihilator annihilator;
+	/** Moment the space key started being held, 0 if not held. */
+	private long spaceHeldSince;
 	/** Last countdown number that played a sound. */
 	private int lastCountdown = -1;
-    /** Manages active buffs, including Hyperfire. */
-    private BuffManager buffManager;
 
     /** Prevents repeated activation while holding H. */
     private boolean hyperfireKeyPressed = false;
@@ -90,7 +98,7 @@ public class GameScreen extends Screen {
 	 *            Current game state.
 	 * @param gameSettings
 	 *            Current game settings.
-	 * @param bonnusLife
+	 * @param bonusLife
 	 *            Checks if a bonus life is awarded this level.
 	 * @param width
 	 *            Screen width.
@@ -124,7 +132,8 @@ public class GameScreen extends Screen {
 		enemyShipFormation = new EnemyShipFormation(this.gameSettings);
 		enemyShipFormation.attach(this);
 		this.ship = new Ship(this.width / 2, this.height - 30);
-        this.buffManager = new BuffManager();
+        this.itemManager = new ItemManager(this.height);
+        this.shieldDroppedThisLevel = false;
         this.hyperfireKeyPressed = false;
 		// Appears each 10-30 seconds.
 		this.enemyShipSpecialCooldown = Core.getVariableCooldown(
@@ -134,6 +143,7 @@ public class GameScreen extends Screen {
 				.getCooldown(BONUS_SHIP_EXPLOSION);
 		this.screenFinishedCooldown = Core.getCooldown(SCREEN_CHANGE_INTERVAL);
 		this.bullets = new HashSet<Bullet>();
+		this.annihilator = new OrbitalAnnihilator();
 
 		// Special input delay / countdown.
 		this.gameStartTime = System.currentTimeMillis();
@@ -162,17 +172,16 @@ public class GameScreen extends Screen {
 	 */
 	protected final void update() {
 		super.update();
-        if (this.buffManager != null && this.ship != null) {
-            this.buffManager.update(this.ship);
-        }
+
+
 
 		if (this.inputDelay.checkFinished() && !this.levelFinished) {
 
 			if (!this.ship.isDestroyed()) {
-				boolean moveRight = inputManager.isKeyDown(KeyEvent.VK_RIGHT)
-						|| inputManager.isKeyDown(KeyEvent.VK_D);
-				boolean moveLeft = inputManager.isKeyDown(KeyEvent.VK_LEFT)
-						|| inputManager.isKeyDown(KeyEvent.VK_A);
+				boolean moveRight = inputManager.isKeyDown(
+						ControlsConfig.getKey(ControlsConfig.RIGHT));
+				boolean moveLeft = inputManager.isKeyDown(
+						ControlsConfig.getKey(ControlsConfig.LEFT));
 
 				boolean isRightBorder = this.ship.getPositionX()
 						+ this.ship.getWidth() + this.ship.getSpeed() > this.width - 1;
@@ -185,20 +194,51 @@ public class GameScreen extends Screen {
 				if (moveLeft && !isLeftBorder) {
 					this.ship.moveLeft();
 				}
-				if (inputManager.isKeyDown(KeyEvent.VK_SPACE))
-					if (this.ship.shoot(this.bullets))
-						this.bulletsShot++;
 
-                boolean hyperfireKeyDown =
-                        inputManager.isKeyDown(KeyEvent.VK_H);
-
-                if (hyperfireKeyDown && !this.hyperfireKeyPressed) {
-                    this.buffManager.addBuff(new Hyperfire(0, 0), this.ship);
+        // Normal shooting using configured controls.
+        if (inputManager.isKeyDown(
+                ControlsConfig.getKey(ControlsConfig.FIRE))) {
+            if (!this.annihilator.isCharging()) {
+                if (this.ship.shoot(this.bullets)) {
+                    this.bulletsShot++;
                 }
-
-                this.hyperfireKeyPressed = hyperfireKeyDown;
-
             }
+        }
+
+        // Hyperfire test activation with the H key.
+        boolean hyperfireKeyDown =
+                inputManager.isKeyDown(KeyEvent.VK_H);
+
+        if (hyperfireKeyDown && !this.hyperfireKeyPressed) {
+            this.itemManager.getBuffManager().addBuff(
+                    new Hyperfire(0, 0), this.ship);
+        }
+
+        this.hyperfireKeyPressed = hyperfireKeyDown;
+
+        // Orbital Annihilator charging mechanic.
+        if (inputManager.isKeyDown(KeyEvent.VK_SPACE)) {
+            if (!this.annihilator.isReady()) {
+                this.spaceHeldSince = 0;
+            } else if (this.spaceHeldSince == 0) {
+                this.spaceHeldSince = System.currentTimeMillis();
+            }
+
+            if (this.spaceHeldSince != 0
+                    && this.level == OrbitalAnnihilator.REQUIRED_LEVEL
+                    && System.currentTimeMillis() - this.spaceHeldSince
+                    >= ANNIHILATOR_HOLD_TIME) {
+                this.annihilator.trigger();
+            }
+        } else {
+            this.spaceHeldSince = 0;
+        }
+    } else {
+        // Cancel charging when the ship is destroyed.
+        this.annihilator.cancelCharge();
+        this.spaceHeldSince = 0;
+    }
+
 
 			if (this.enemyShipSpecial != null) {
 				if (!this.enemyShipSpecial.isDestroyed())
@@ -220,11 +260,15 @@ public class GameScreen extends Screen {
 			}
 
 			this.ship.update();
+			this.annihilator.update();
 			this.enemyShipFormation.update();
 			this.enemyShipFormation.shoot(this.bullets);
 		}
-
+        this.itemManager.update(this.ship);
+        this.itemManager.checkCollisions(this.ship);
 		manageCollisions();
+		if (this.annihilator.isFiring())
+			manageAnnihilatorBeam();
 		cleanBullets();
 		draw();
 
@@ -252,9 +296,17 @@ public class GameScreen extends Screen {
 	 */
 	private void draw() {
 		drawManager.initDrawing(this);
+		if (this.annihilator.isCharging() || this.annihilator.isFiring())
+			drawManager.drawOrbitalAnnihilator(this.ship,
+					OrbitalAnnihilator.BEAM_WIDTH, SEPARATION_LINE_HEIGHT,
+					this.annihilator.isFiring(),
+					this.annihilator.getChargeProgress());
 
 		drawManager.drawEntity(this.ship, this.ship.getPositionX(),
 				this.ship.getPositionY());
+        if (this.ship.isShieldActive() && !this.ship.isDestroyed()) {
+            drawManager.drawShield(this, this.ship);
+        }
 		if (this.enemyShipSpecial != null)
 			drawManager.drawEntity(this.enemyShipSpecial,
 					this.enemyShipSpecial.getPositionX(),
@@ -265,10 +317,13 @@ public class GameScreen extends Screen {
 		for (Bullet bullet : this.bullets)
 			drawManager.drawEntity(bullet, bullet.getPositionX(),
 					bullet.getPositionY());
-
+        this.itemManager.draw(this.drawManager);
 		// Interface.
 		drawManager.drawScore(this, this.score);
 		drawManager.drawLives(this, this.lives);
+		if (this.level == OrbitalAnnihilator.REQUIRED_LEVEL)
+			drawManager.drawAnnihilatorGauge(this,
+					this.annihilator.getRechargeProgress());
 		drawManager.drawHorizontalLine(this, SEPARATION_LINE_HEIGHT - 1);
 
 		// Countdown to game start.
@@ -310,15 +365,22 @@ public class GameScreen extends Screen {
 		Set<Bullet> recyclable = new HashSet<Bullet>();
 		for (Bullet bullet : this.bullets)
 			if (bullet.getSpeed() > 0) {
-				if (checkCollision(bullet, this.ship) && !this.levelFinished) {
-					recyclable.add(bullet);
-					if (!this.ship.isDestroyed()) {
-						this.ship.destroy();
-						this.lives--;
-						this.logger.info("Hit on player ship, " + this.lives
-								+ " lives remaining.");
-					}
-				}
+                if (checkCollision(bullet, this.ship) && !this.levelFinished) {
+                    recyclable.add(bullet);
+                    if (!this.ship.isDestroyed()) {
+                        if (this.ship.isShieldActive()) {
+                            // Le bouclier absorbe l'impact : le tir est détruit mais le joueur survit
+                            this.logger.info("Enemy shot absorbed by Energy Shield.");
+                        } else {
+                            // Comportement standard : perte d'une vie et annulation des buffs actifs
+                            this.ship.destroy();
+                            this.lives--;
+                            this.itemManager.getBuffManager().resetAllBuffs(this.ship);
+                            this.logger.info("Hit on player ship, " + this.lives
+                                    + " lives remaining.");
+                        }
+                    }
+                }
 			} else {
 				for (EnemyShip enemyShip : this.enemyShipFormation)
 					if (!enemyShip.isDestroyed()
@@ -327,6 +389,19 @@ public class GameScreen extends Screen {
 						this.shipsDestroyed++;
 						this.enemyShipFormation.destroy(enemyShip);
 						recyclable.add(bullet);
+                        // --- DROP DU BOUCLIER ---
+                        if (!this.shieldDroppedThisLevel) {
+                            boolean shouldDrop = (Math.random() < 0.15) || (this.enemyShipFormation.isEmpty());
+                            if (shouldDrop) {
+                                this.itemManager.spawnItem(new entity.item.ShieldItem(
+                                        enemyShip.getPositionX(),
+                                        enemyShip.getPositionY()
+                                ));
+                                this.shieldDroppedThisLevel = true;
+                                this.logger.info("Shield item dropped from enemy ship at ("
+                                        + enemyShip.getPositionX() + ", " + enemyShip.getPositionY() + ").");
+                            }
+                        }
 					}
 				if (this.enemyShipSpecial != null
 						&& !this.enemyShipSpecial.isDestroyed()
@@ -341,7 +416,36 @@ public class GameScreen extends Screen {
 		this.bullets.removeAll(recyclable);
 		BulletPool.recycle(recyclable);
 	}
+	/**
+	 * Applies the Orbital Annihilator beam: destroys every enemy in the
+	 * corridor and neutralizes enemy projectiles inside it.
+	 */
+	private void manageAnnihilatorBeam() {
+		for (EnemyShip enemyShip : this.enemyShipFormation)
+			if (!enemyShip.isDestroyed()
+					&& OrbitalAnnihilator.hits(this.ship, enemyShip)) {
+				this.score += enemyShip.getPointValue();
+				this.shipsDestroyed++;
+				this.enemyShipFormation.destroy(enemyShip);
+			}
 
+		if (this.enemyShipSpecial != null
+				&& !this.enemyShipSpecial.isDestroyed()
+				&& OrbitalAnnihilator.hits(this.ship, this.enemyShipSpecial)) {
+			this.score += this.enemyShipSpecial.getPointValue();
+			this.shipsDestroyed++;
+			this.enemyShipSpecial.destroy();
+			this.enemyShipSpecialExplosionCooldown.reset();
+		}
+
+		Set<Bullet> neutralized = new HashSet<Bullet>();
+		for (Bullet bullet : this.bullets)
+			if (bullet.getSpeed() > 0
+					&& OrbitalAnnihilator.hits(this.ship, bullet))
+				neutralized.add(bullet);
+		this.bullets.removeAll(neutralized);
+		BulletPool.recycle(neutralized);
+	}
 	/**
 	 * Checks if two entities are colliding.
 	 * 

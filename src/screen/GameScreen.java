@@ -15,6 +15,8 @@ import entity.EnemyShipFormation;
 import entity.Entity;
 import entity.Ship;
 import audio.AudioManager;
+import entity.item.BuffManager;
+import entity.item.Hyperfire;
 
 /**
  * Implements the game screen, where the action happens.
@@ -75,6 +77,11 @@ public class GameScreen extends Screen {
 	private boolean bonusLife;
 	/** Last countdown number that played a sound. */
 	private int lastCountdown = -1;
+    /** Manages active buffs, including Hyperfire. */
+    private BuffManager buffManager;
+
+    /** Prevents repeated activation while holding H. */
+    private boolean hyperfireKeyPressed = false;
 
 	/**
 	 * Constructor, establishes the properties of the screen.
@@ -117,6 +124,8 @@ public class GameScreen extends Screen {
 		enemyShipFormation = new EnemyShipFormation(this.gameSettings);
 		enemyShipFormation.attach(this);
 		this.ship = new Ship(this.width / 2, this.height - 30);
+        this.buffManager = new BuffManager();
+        this.hyperfireKeyPressed = false;
 		// Appears each 10-30 seconds.
 		this.enemyShipSpecialCooldown = Core.getVariableCooldown(
 				BONUS_SHIP_INTERVAL, BONUS_SHIP_VARIANCE);
@@ -153,6 +162,9 @@ public class GameScreen extends Screen {
 	 */
 	protected final void update() {
 		super.update();
+        if (this.buffManager != null && this.ship != null) {
+            this.buffManager.update(this.ship);
+        }
 
 		if (this.inputDelay.checkFinished() && !this.levelFinished) {
 
@@ -176,7 +188,17 @@ public class GameScreen extends Screen {
 				if (inputManager.isKeyDown(KeyEvent.VK_SPACE))
 					if (this.ship.shoot(this.bullets))
 						this.bulletsShot++;
-			}
+
+                boolean hyperfireKeyDown =
+                        inputManager.isKeyDown(KeyEvent.VK_H);
+
+                if (hyperfireKeyDown && !this.hyperfireKeyPressed) {
+                    this.buffManager.addBuff(new Hyperfire(0, 0), this.ship);
+                }
+
+                this.hyperfireKeyPressed = hyperfireKeyDown;
+
+            }
 
 			if (this.enemyShipSpecial != null) {
 				if (!this.enemyShipSpecial.isDestroyed())
